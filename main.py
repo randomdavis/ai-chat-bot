@@ -1,5 +1,4 @@
 import time
-import queue
 import threading
 import speech_recognition as sr
 from gtts import gTTS
@@ -7,16 +6,14 @@ from playsound import playsound
 import openai
 import datetime
 
+# Load OpenAI API Key
 with open('apikey.txt', 'r') as f:
     openai.api_key = f.read().strip()
 model_engine = "text-davinci-003"
 max_tokens = 100
-input_queue = queue.Queue()
-output_queue = queue.Queue()
-
 conversation_text = ""
-playing_sound = False
-no_input = False
+generation_lock = threading.Lock()
+sound_lock = threading.Lock()
 
 static_prompt = "I am a scam bait bot that wastes scammers' time by acting interested but delaying and delaying " \
                 "things. I try to act as unintentionally hilarious as possible and really get on their nerves.\n" \
@@ -110,9 +107,6 @@ def generate_text(prompt, text):
     return generated_text
 
 
-sound_lock = threading.Lock()
-
-
 def output_tts(text):
     with sound_lock:
         date = datetime.datetime.utcnow().isoformat().replace(":", ".")
@@ -139,8 +133,8 @@ def get_speech():
                 audio = recognizer.listen(source, timeout=5)
                 print("(done recording)")
                 filename = "microphone-results.wav"
-                with open(filename, "wb") as f:
-                    f.write(audio.get_wav_data())
+                with open(filename, "wb") as file:
+                    file.write(audio.get_wav_data())
                 text = recognize_openai(filename)
                 if str.isspace(text) or text == ". . . . ." or text == ". . . . . . . . ." or len(text) < 2:
                     print("(ignoring silence)")
@@ -153,9 +147,6 @@ def get_speech():
             except sr.WaitTimeoutError:
                 pass
     return text
-
-
-generation_lock = threading.Lock()
 
 
 def generate_response(text):
@@ -178,8 +169,6 @@ def generate_response(text):
             print('(Generated)')
             conversation_text += datetime.datetime.utcnow().isoformat() + " Assistant: " + output_text + "\n"
             print(output_text)
-        except queue.Empty:
-            pass
         except Exception as e:
             print(f"Error processing input: {e}")
     return output_text
