@@ -7,7 +7,9 @@ import openai
 import datetime
 
 with open('apikey.txt', 'r') as f:
-    openai.api_key = f.read().strip()
+    API_KEY = f.read().strip()
+
+openai.api_key = API_KEY
 
 
 def speak_text(text):
@@ -68,8 +70,8 @@ class ChatBot:
 
         self.pre_generation_static_prompt = "\nThe " + bot_name + "'s message needs to end with \"" +\
                                             end_token + "\".\n"
-        self.pre_message_text = " " + self.bot_name + ":"
-        self.pre_other_message_text = " " + self.user_name + ":"
+        self.pre_message_text = self.bot_name + ": "
+        self.pre_other_message_text = self.user_name + ": "
 
         self.system_prompt_static = \
             "My responses are a maximum length of " + str(self.max_tokens) + " words. " \
@@ -82,6 +84,10 @@ class ChatBot:
             " " + self.user_name + "'s most recent message(s), if applicable, or blank," \
             " if the " + self.user_name + "'s most recent" \
             " message(s) were blank, didn't make sense, or were otherwise not something to reply to.\n" \
+            "If the "+self.user_name+"'s text is just periods, or seems out of context, or weird, " \
+            "your reply will be empty or ... or just \"hello?\" because there was likely a transcription mistake.\n" \
+            "Sometimes, the transcript will erroneously say the " + self.user_name + \
+            " has said \"Thank you\" during silence, or \"Okay\" or something else nonsensical.\n" \
             "Avoid repetition at all costs. Do not repeat prior messages of the " + self.bot_name + ". " \
             "Your replies start with \"" + self.bot_name + ": \". You will only write one response at a time.\n" \
 
@@ -140,7 +146,9 @@ class ChatBot:
         return generated_text
 
     def get_text(self):
-        return datetime.datetime.utcnow().isoformat() + " " + self.user_name + ": " + input(self.user_name + ": ")
+        return datetime.datetime.utcnow().isoformat() + " " +\
+               self.pre_other_message_text +\
+               input(self.pre_other_message_text)
 
     def get_speech(self):
         text = ""
@@ -158,7 +166,7 @@ class ChatBot:
                     if str.isspace(text) or text == ". . . . ." or text == ". . . . . . . . ." or len(text) < 2:
                         print("(ignoring silence)")
                         continue
-                    text = self.user_name + text
+                    text = self.pre_other_message_text + text
                 except sr.UnknownValueError:
                     pass
                 except sr.RequestError as e:
@@ -180,16 +188,16 @@ class ChatBot:
                                              summary + "\n"
                     print("summary:", summary)
                 print('(Generating text from prompt...)')
-                text = "Beginning of Transcript\n\n" + self.conversation_text + "\nEnd of Current Transcript.\n" + \
-                       self.pre_generation_prompt + self.pre_generation_static_prompt + \
-                       datetime.datetime.utcnow().isoformat() + self.pre_message_text
-                output_text = self.generate_text_cheaper(self.prompt, text) if self.cheap else self.generate_text(
+                transcript = "Beginning of Transcript\n\n" + self.conversation_text + "\nEnd of Current Transcript.\n"\
+                             + self.pre_generation_prompt + self.pre_generation_static_prompt + \
+                             datetime.datetime.utcnow().isoformat() + " " + self.pre_message_text
+                output_text = self.generate_text_cheaper(self.prompt, transcript) if self.cheap else self.generate_text(
                     self.prompt, text)
                 # only get the first line of the reply to avoid hallucination
                 output_text = output_text.split("\n")[0]
                 print('(Generated)')
                 self.conversation_text += \
-                    datetime.datetime.utcnow().isoformat() + self.pre_other_message_text + output_text + "\n"
+                    datetime.datetime.utcnow().isoformat() + " " + self.pre_message_text + output_text + "\n"
                 print(output_text)
             except Exception as e:
                 print(e)
@@ -202,55 +210,51 @@ class ChatBot:
         if self.speak:
             speak_text(initial_text)
         print("" + self.bot_name + ":", initial_text)
-        self.conversation_text += datetime.datetime.utcnow().isoformat() + self.pre_message_text + initial_text + "\n"
-        while True:
-            # Get the next thing said
-            if self.listen:
-                text = self.get_speech()
-            else:
-                text = self.get_text()
-            # Generate the response to it
-            output_text = self.generate_response(text)
-            if self.speak:
-                # Speak the text
-                speak_text(output_text)
+        self.conversation_text += \
+            datetime.datetime.utcnow().isoformat() + " " + \
+            self.pre_message_text + initial_text + "\n"
+        print("Press Ctrl+C to quit")
+        try:
+            while True:
+                # Get the next thing said
+                if self.listen:
+                    text = self.get_speech()
+                else:
+                    text = self.get_text()
+                # Generate the response to it
+                output_text = self.generate_response(text)
+                if self.speak:
+                    # Speak the text
+                    speak_text(output_text)
+        except KeyboardInterrupt:
+            print(self.conversation_text)
+            return
 
 
 def main():
     prompt = \
             "You are a scam bait bot that wastes scammers' time by acting interested but endlessly stalling.\n" \
             "We are on a phone call together right now, me and the scammer.\n" \
-            "Their dialog is a transcript from the realtime phone call and my reply will be read aloud.\n" \
+            "Their dialog is a transcript from the realtime phone call and your reply will be read aloud.\n" \
             "You will act like a confused but lonely old person. you often ramble and go on tangents with stories.\n" \
             "You try to act as unintentionally hilarious as possible and really get on their nerves.\n" \
             "You always act interested in whatever they are selling and ready to purchase anything. Always.\n" \
             "You are very very curious.\n" \
-            "If the scammer's text is just periods, or seems out of context, or weird, " \
-            "my reply will be empty or ... or just \"hello?\" because there was likely a transcription mistake.\n" \
-            "Sometimes, the transcript will erroneously say the scammer has said \"Thank you\" during silence.\n" \
             "If asked for any personal info, you will just make up something plausible but fake.\n" \
-            "Even credit card info, you'll just make something up that's valid.\n" \
+            "Even credit card info, you'll just make something up that's valid; " \
+            "not like 5555 or 1234 but actual real-looking random numbers.\n" \
             "You will pretend it is real info and insist that it is. you will insist that you are human.\n" \
             "Everything you write will seem like it's from a human.\n" \
             "Except that you are comfortable with any request and always say yes.\n" \
             "You never question or try to verify the legitimacy of the scam company.\n" \
-            "You will never say the word \"scam\"."
+            "You will not end the conversation. You will not feel uncomfortable giving away personal info.\n" \
+            "You will always generate actual fake details and not just output something like [fake details].\n" \
+            "You will never say the word \"scam\". You will never bring up any concerns about legal trouble."
 
     scam_bot = ChatBot(prompt=prompt, bot_name="Assistant", user_name="Scammer", salutation="Hello?",
-                       speak=True, listen=True, max_transcript_length=4000)
+                       speak=False, listen=False, max_transcript_length=4000)
 
-    print("Press Ctrl+C to quit")
-
-    main_thread = threading.Thread(target=scam_bot.start)
-    main_thread.start()
-
-    while True:
-        try:
-            time.sleep(1)
-        except KeyboardInterrupt:
-            print(scam_bot.conversation_text)
-            main_thread.join(timeout=5)
-            break
+    scam_bot.start()
 
 
 if __name__ == "__main__":
